@@ -1,0 +1,83 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Kubernetes Ingress — Optional HTTP Routing
+#
+# CONCEPT: An Ingress is an L7 (HTTP/HTTPS) reverse proxy and router.
+# It routes external traffic to internal Services based on:
+#   - Hostname:  api.example.com → backend Service
+#   - URL path:  example.com/api → backend, example.com/ → frontend
+#
+# WHY INGRESS OVER NODEPORT?
+#   NodePort: every Service gets its own port (30800, 30300, etc.) — messy.
+#   Ingress:  one entry point (port 80/443), routes by host/path — clean.
+#
+# REQUIREMENT: An Ingress Controller must be running in the cluster.
+# Popular options:
+#   nginx (most common):
+#     helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+#     helm install ingress-nginx ingress-nginx/ingress-nginx
+#   Traefik, HAProxy, Contour, Istio, AWS ALB, GKE HTTP(S) LB, etc.
+#
+# ENABLING: Set ingress.enabled=true in values.yaml, then:
+#   1. Install an ingress controller (see above)
+#   2. Add to your hosts file:  127.0.0.1  aiops.local
+#   3. Access at  http://aiops.local
+#
+# ARCHITECTURE WITH INGRESS:
+#   Browser → Ingress Controller (port 80) → Service (ClusterIP) → Pod
+#   Change the Service types to ClusterIP when using Ingress.
+# ═══════════════════════════════════════════════════════════════════════════════
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          # API requests: /api/* and /docs → backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aiops-sentinel.backend.name" . }}
+                port:
+                  name: http
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aiops-sentinel.backend.name" . }}
+                port:
+                  name: http
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aiops-sentinel.backend.name" . }}
+                port:
+                  name: http
+          # Everything else → frontend (React app)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aiops-sentinel.frontend.name" . }}
+                port:
+                  name: http
+{{- end }}

@@ -1,0 +1,77 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     AIOps Sentinel deployed successfully!                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Release:   {{ .Release.Name }}
+Namespace: {{ include "aiops-sentinel.namespace" . }}
+Chart:     {{ .Chart.Name }}-{{ .Chart.Version }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌐 ACCESS URLS (Docker Desktop / localhost)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Frontend (React UI):  http://localhost:{{ .Values.frontend.service.nodePort }}
+  Backend  (API):       http://localhost:{{ .Values.backend.service.nodePort }}
+  Backend  (Docs):      http://localhost:{{ .Values.backend.service.nodePort }}/docs
+{{- if .Values.prometheus.enabled }}
+  Prometheus:           http://localhost:{{ .Values.prometheus.service.nodePort }}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  Grafana:              http://localhost:{{ .Values.grafana.service.nodePort }}
+                        Username: admin
+                        Password: {{ .Values.grafana.adminPassword }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 USEFUL KUBECTL COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Watch all pods come up
+  kubectl get pods -n {{ include "aiops-sentinel.namespace" . }} -w
+
+  # View backend logs
+  kubectl logs -n {{ include "aiops-sentinel.namespace" . }} -l app.kubernetes.io/component=backend -f
+
+  # Describe a pod (troubleshooting)
+  kubectl describe pod -n {{ include "aiops-sentinel.namespace" . }} -l app.kubernetes.io/component=backend
+
+  # Open a shell inside the backend container
+  kubectl exec -it -n {{ include "aiops-sentinel.namespace" . }} \
+    $(kubectl get pod -n {{ include "aiops-sentinel.namespace" . }} \
+    -l app.kubernetes.io/component=backend -o name | head -1) -- /bin/bash
+
+  # View events (helpful when pods are stuck)
+  kubectl get events -n {{ include "aiops-sentinel.namespace" . }} --sort-by='.lastTimestamp'
+
+  # Scale backend replicas manually
+  kubectl scale deployment {{ include "aiops-sentinel.backend.name" . }} \
+    -n {{ include "aiops-sentinel.namespace" . }} --replicas=2
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 HELM COMMANDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Check release status
+  helm status {{ .Release.Name }} -n {{ include "aiops-sentinel.namespace" . }}
+
+  # View all rendered templates (dry-run)
+  helm template {{ .Release.Name }} ./helm/aiops-sentinel
+
+  # Upgrade after making changes
+  helm upgrade {{ .Release.Name }} ./helm/aiops-sentinel -n {{ include "aiops-sentinel.namespace" . }}
+
+  # Roll back to previous version
+  helm rollback {{ .Release.Name }} -n {{ include "aiops-sentinel.namespace" . }}
+
+  # Uninstall the release
+  helm uninstall {{ .Release.Name }} -n {{ include "aiops-sentinel.namespace" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if not .Values.backend.groqApiKey }}
+⚠️  WARNING: backend.groqApiKey is not set!
+   AI features (RCA, recommendations) will not work.
+   Set it with:
+     helm upgrade {{ .Release.Name }} ./helm/aiops-sentinel \
+       -n {{ include "aiops-sentinel.namespace" . }} \
+       --set backend.groqApiKey="gsk_your_key_here"
+{{- end }}

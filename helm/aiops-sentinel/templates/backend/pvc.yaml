@@ -1,0 +1,60 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# PersistentVolumeClaim (PVC) — Backend Storage
+#
+# CONCEPT: Kubernetes storage has 3 layers:
+#
+#   ┌─────────────────────────────────────────────────────────────────┐
+#   │  StorageClass  →  PersistentVolume (PV)  →  PVC  →  Pod       │
+#   └─────────────────────────────────────────────────────────────────┘
+#
+#   StorageClass: defines *how* storage is provisioned.
+#                 Docker Desktop default: "hostpath" (stores on your laptop disk)
+#                 Cloud examples: gp3 (AWS EBS), premium-ssd (Azure Disk)
+#
+#   PersistentVolume (PV): the actual storage resource.
+#                          With dynamic provisioning, created automatically
+#                          by the StorageClass when a PVC is submitted.
+#
+#   PersistentVolumeClaim (PVC): a *request* for storage. You specify:
+#                                - size (e.g., 2Gi)
+#                                - access mode (see below)
+#                                - optional StorageClass
+#
+#   Pod: mounts the PVC via a volume definition. The PVC binds to a PV.
+#
+# ACCESS MODES (what nodes can do with the volume):
+#   ReadWriteOnce (RWO) — one node reads & writes  ← most common, use for DBs
+#   ReadOnlyMany  (ROX) — many nodes read-only      ← shared config files
+#   ReadWriteMany (RWX) — many nodes read & write   ← needs NFS/CephFS/EFS
+#
+# RECLAIM POLICIES (what happens when PVC is deleted):
+#   Retain  — keep the PV (manual cleanup needed) ← safer for data
+#   Delete  — delete the PV automatically          ← default for cloud storage
+#
+# NOTE: The helm.sh/resource-policy: keep annotation prevents Helm from
+#       deleting this PVC when you run `helm uninstall` — protecting your data.
+# ═══════════════════════════════════════════════════════════════════════════════
+{{- if .Values.backend.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "aiops-sentinel.backend.name" . }}-data
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+  annotations:
+    # Keep this PVC even after `helm uninstall` — never lose your data accidentally!
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.backend.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.size }}
+  {{- if .Values.backend.persistence.storageClass }}
+  storageClassName: {{ .Values.backend.persistence.storageClass }}
+  {{- end }}
+  # Note: If storageClassName is omitted, Kubernetes uses the cluster's
+  # default StorageClass. On Docker Desktop this is "hostpath".
+{{- end }}

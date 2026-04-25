@@ -1,0 +1,60 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Kubernetes ConfigMap — Backend Non-Sensitive Configuration
+#
+# CONCEPT: ConfigMap stores configuration as key-value pairs.
+# Use for: URLs, feature flags, intervals, non-secret settings.
+#
+# KEY INSIGHT — Kubernetes Service DNS:
+# Every Service gets a stable DNS name:
+#   <service-name>.<namespace>.svc.cluster.local
+#
+# Within the SAME namespace, the short form works:
+#   http://aiops-prometheus:9090  (instead of the full FQDN)
+#
+# This is how microservices find each other in Kubernetes —
+# no hard-coded IPs needed. Kubernetes DNS resolves the name
+# to the ClusterIP of the Service, which load-balances to healthy pods.
+#
+# HELM TIP: We use printf + include to dynamically build URLs from
+# the service names computed in _helpers.tpl, so they always stay
+# in sync even if the release name changes.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aiops-sentinel.backend.name" . }}-config
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+data:
+  # ── SQLite database path ──────────────────────────────────────────────────
+  # Override the default path so the DB lives on the persistent volume.
+  # The PVC is mounted at /app/data — see the Deployment volumeMounts.
+  DATABASE_URL: "sqlite:////app/data/aiops_sentinel.db"
+
+  # ── Groq model ────────────────────────────────────────────────────────────
+  GROQ_MODEL: {{ .Values.backend.groqModel | quote }}
+
+  # ── Simulation ────────────────────────────────────────────────────────────
+  SIMULATION_INTERVAL_SECONDS: {{ .Values.backend.simulationIntervalSeconds | quote }}
+
+  # ── Prometheus integration ────────────────────────────────────────────────
+  # printf builds: "http://<release-name>-prometheus:<port>"
+  # e.g., http://aiops-prometheus:9090
+  PROMETHEUS_ENABLED: {{ .Values.backend.prometheusEnabled | quote }}
+  PROMETHEUS_URL: {{ printf "http://%s:%d" (include "aiops-sentinel.prometheus.name" .) (int .Values.prometheus.port) | quote }}
+  PROMETHEUS_SCRAPE_INTERVAL_SECONDS: {{ .Values.backend.prometheusScrapeIntervalSeconds | quote }}
+  PROMETHEUS_ENVIRONMENT: {{ .Values.backend.prometheusEnvironment | quote }}
+
+  # ── Loki integration ──────────────────────────────────────────────────────
+  LOKI_ENABLED: {{ .Values.backend.lokiEnabled | quote }}
+  LOKI_URL: {{ printf "http://%s:%d" (include "aiops-sentinel.loki.name" .) (int .Values.loki.port) | quote }}
+  LOKI_SCRAPE_INTERVAL_SECONDS: {{ .Values.backend.lokiScrapeIntervalSeconds | quote }}
+  LOKI_LOOKBACK_SECONDS: {{ .Values.backend.lokiLookbackSeconds | quote }}
+  LOKI_LIMIT_PER_JOB: {{ .Values.backend.lokiLimitPerJob | quote }}
+
+  # ── CORS ───────────────────────────────────────────────────────────────────
+  # pydantic-settings parses list[str] fields from env vars as JSON arrays.
+  # Format MUST be a JSON array string, not comma-separated.
+  CORS_ORIGINS: {{ printf "[\"http://localhost:%d\",\"http://localhost:5173\",\"http://localhost:3000\"]" (int .Values.frontend.service.nodePort) | quote }}

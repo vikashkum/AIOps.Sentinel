@@ -1,0 +1,22 @@
+# Helm ignore file — patterns to exclude when packaging the chart (helm package)
+# Similar to .gitignore syntax.
+
+# Version control
+.git/
+.gitignore
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
+*~
+
+# Documentation (not needed inside the packaged chart)
+README.md
+DEVELOPMENT.md
+
+# Test output
+*.log

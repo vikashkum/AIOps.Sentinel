@@ -1,0 +1,249 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# AIOps Sentinel — Helm Values
+#
+# This file contains all configurable parameters for the chart.
+#
+# HOW TO OVERRIDE (pick one approach):
+#   1. Inline flag:       helm install aiops . --set backend.replicas=2
+#   2. Values file:       helm install aiops . -f values-production.yaml
+#   3. Multiple files:    helm install aiops . -f values-base.yaml -f values-prod.yaml
+#
+# LEARNING TIP:
+#   This file is the "contract" of your Helm chart. Every parameter that a user
+#   might want to change should live here with a sensible default. Templates
+#   then reference these values with {{ .Values.<key> }}.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Global settings ───────────────────────────────────────────────────────────
+global:
+  # The Kubernetes namespace to deploy into.
+  namespace: aiops-sentinel
+
+  # imagePullPolicy for PUBLIC images (prometheus, loki, grafana).
+  # IfNotPresent = use cached image if available — avoids hitting registry.
+  imagePullPolicy: IfNotPresent
+
+  # imagePullPolicy for LOCAL app images (backend, frontend).
+  # Always = Kubernetes re-reads the local image on every pod start.
+  # Required for Docker Desktop multi-node where each node has its own
+  # image cache — docker build updates Docker's store but not the node cache.
+  appImagePullPolicy: Always
+
+# ── Backend (FastAPI Python service) ──────────────────────────────────────────
+backend:
+  image:
+    # For Docker Desktop: build locally first then reference by name.
+    #   docker build -t aiops-backend:latest ./backend
+    repository: aiops-backend
+    tag: latest
+
+  # NOTE: Keep at 1 when using SQLite.
+  # SQLite does NOT support concurrent writes from multiple processes.
+  # To scale >1 replica, migrate to PostgreSQL and update DATABASE_URL.
+  replicas: 1
+
+  port: 8000
+
+  # ── Groq AI credentials ───────────────────────────────────────────────────
+  # Stored in a Kubernetes Secret (base64 encoded).
+  # NEVER commit real keys to Git. Override at deploy time:
+  #   helm install aiops . --set backend.groqApiKey="gsk_your_key_here"
+  groqApiKey: ""
+  groqModel: "llama3-8b-8192"
+
+  # ── Application settings ──────────────────────────────────────────────────
+  simulationIntervalSeconds: 10
+
+  # ── Prometheus integration ─────────────────────────────────────────────────
+  # URL is automatically computed from the Prometheus service name in the cluster.
+  prometheusEnabled: true
+  prometheusScrapeIntervalSeconds: 15
+  prometheusEnvironment: "production"
+
+  # ── Loki integration ───────────────────────────────────────────────────────
+  lokiEnabled: true
+  lokiScrapeIntervalSeconds: 15
+  lokiLookbackSeconds: 30
+  lokiLimitPerJob: 500
+
+  # ── Resource requests and limits ──────────────────────────────────────────
+  # requests: minimum guaranteed resources (used for Pod scheduling).
+  # limits:   maximum cap (OOMKill if memory exceeded; CPU throttled).
+  # Unit: m = millicores (1000m = 1 CPU core), Mi/Gi = mebibytes/gibibytes.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  # ── Horizontal Pod Autoscaler (HPA) ───────────────────────────────────────
+  # Automatically scales replica count when CPU usage crosses the threshold.
+  # Requires the Kubernetes Metrics Server to be installed.
+  # Docker Desktop bundles the metrics server — enable it in Settings > Kubernetes.
+  hpa:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+  # ── Persistent storage ────────────────────────────────────────────────────
+  # Stores the SQLite database and trained ML models across Pod restarts.
+  persistence:
+    enabled: true
+    size: 2Gi
+    accessMode: ReadWriteOnce
+    # storageClass: ""  # Leave blank → use cluster default StorageClass
+    #                     Docker Desktop default: "hostpath"
+
+  # ── Kubernetes Service ────────────────────────────────────────────────────
+  # Service types:
+  #   ClusterIP    — internal only (use with Ingress for external access)
+  #   NodePort     — expose on a fixed port of every node (easiest for Docker Desktop)
+  #   LoadBalancer — provision a cloud LB or use Docker Desktop's built-in LB
+  service:
+    type: LoadBalancer
+    nodePort: 30800    # http://localhost:8000 after deployment (LoadBalancer uses the port below)
+    port: 8000
+
+# ── Frontend (React + Nginx) ──────────────────────────────────────────────────
+frontend:
+  image:
+    # docker build -t aiops-frontend:latest ./frontend
+    repository: aiops-frontend
+    tag: latest
+
+  replicas: 1
+  port: 80
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  service:
+    type: LoadBalancer
+    nodePort: 30300    # http://localhost:80 after deployment
+    port: 80
+
+# ── Prometheus ────────────────────────────────────────────────────────────────
+prometheus:
+  enabled: true
+
+  image:
+    repository: prom/prometheus
+    tag: v2.52.0
+
+  port: 9090
+  scrapeInterval: "15s"
+  evaluationInterval: "15s"
+  retentionTime: "7d"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessMode: ReadWriteOnce
+
+  service:
+    type: LoadBalancer
+    nodePort: 30909    # http://localhost:9090 after deployment
+    port: 9090
+
+# ── Loki ──────────────────────────────────────────────────────────────────────
+loki:
+  enabled: true
+
+  image:
+    repository: grafana/loki
+    tag: 3.0.0
+
+  port: 3100
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    size: 5Gi
+    accessMode: ReadWriteOnce
+
+  # ClusterIP — Loki does not need external access.
+  # The backend queries it via internal DNS.
+  service:
+    type: ClusterIP
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+grafana:
+  enabled: true
+
+  image:
+    repository: grafana/grafana
+    tag: 11.0.0
+
+  port: 3000
+
+  # Admin password — change this in production!
+  # Override: helm install aiops . --set grafana.adminPassword="Str0ngP@ssword"
+  adminPassword: "admin"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  persistence:
+    enabled: true
+    size: 2Gi
+    accessMode: ReadWriteOnce
+
+  service:
+    type: LoadBalancer
+    nodePort: 30301    # http://localhost:3001 after deployment
+    port: 3001
+
+# ── Ingress (optional) ────────────────────────────────────────────────────────
+# Ingress routes external HTTP/HTTPS traffic to internal services by hostname/path.
+# Requires an Ingress Controller (e.g., nginx-ingress) to be installed.
+#
+# Install nginx ingress controller:
+#   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+#   helm install ingress-nginx ingress-nginx/ingress-nginx
+#
+# Then enable this and add to your hosts file:
+#   127.0.0.1   aiops.local
+ingress:
+  enabled: false
+  className: "nginx"
+  host: aiops.local
+  annotations: {}
+  tls: []
+  # tls:
+  #   - hosts:
+  #       - aiops.local
+  #     secretName: aiops-tls-secret
+
+# ── Name overrides ────────────────────────────────────────────────────────────
+# nameOverride:     replaces just the chart name portion.
+# fullnameOverride: replaces the entire computed resource name prefix.
+nameOverride: ""
+fullnameOverride: ""

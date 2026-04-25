@@ -1,0 +1,18 @@
+{{- if and .Values.loki.enabled .Values.loki.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "aiops-sentinel.loki.name" . }}-data
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.loki.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.loki.persistence.size }}
+{{- end }}

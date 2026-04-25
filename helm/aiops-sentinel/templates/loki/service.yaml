@@ -1,0 +1,25 @@
+{{- if .Values.loki.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aiops-sentinel.loki.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+spec:
+  # ClusterIP — Loki is only accessed internally by the backend.
+  # No need to expose it outside the cluster.
+  type: {{ .Values.loki.service.type }}
+  selector:
+    {{- include "aiops-sentinel.componentLabels" (dict "component" "loki" "ctx" .) | nindent 4 }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: {{ .Values.loki.port }}
+      targetPort: http
+    - name: grpc
+      protocol: TCP
+      port: 9096
+      targetPort: grpc
+{{- end }}

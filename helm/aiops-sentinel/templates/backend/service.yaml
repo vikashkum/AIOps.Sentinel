@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Kubernetes Service — Backend
+#
+# CONCEPT: A Service is a stable network endpoint for a group of Pods.
+# Pods are ephemeral — they get new IPs when restarted. A Service provides:
+#   - A fixed ClusterIP (virtual IP) that never changes
+#   - Load balancing across all healthy, Ready pods matching the selector
+#   - DNS name:  <service-name>.<namespace>.svc.cluster.local
+#
+# HOW IT WORKS:
+#   1. The Service selector matches pods by labels (same selector as Deployment)
+#   2. kube-proxy maintains iptables/ipvs rules routing traffic to pod IPs
+#   3. Other services discover this service via DNS or env vars
+#
+# SERVICE TYPES:
+#   ClusterIP (default) — virtual IP, internal only
+#   NodePort            — exposes a port on every node (30000-32767 range)
+#   LoadBalancer        — provisions cloud LB or uses Docker Desktop's LB
+#   ExternalName        — DNS alias to an external hostname
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aiops-sentinel.backend.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: {{ .Values.backend.service.type }}
+  # The selector finds pods with these labels and routes traffic to them.
+  # This MUST match the labels on the pod template in the Deployment.
+  selector:
+    {{- include "aiops-sentinel.componentLabels" (dict "component" "backend" "ctx" .) | nindent 4 }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: {{ .Values.backend.service.port | default .Values.backend.port }}  # External port on the LoadBalancer / Service
+      targetPort: http                          # Named port on the Pod (matches containerPort name)
+      {{- if or (eq .Values.backend.service.type "NodePort") (eq .Values.backend.service.type "LoadBalancer") }}
+      nodePort: {{ .Values.backend.service.nodePort }}  # Fixed node port (used by LoadBalancer for health checks)
+      {{- end }}

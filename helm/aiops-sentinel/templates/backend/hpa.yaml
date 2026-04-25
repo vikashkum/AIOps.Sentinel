@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# HorizontalPodAutoscaler (HPA) — Backend Auto-Scaling
+#
+# CONCEPT: HPA automatically adjusts the number of pod replicas in a
+# Deployment based on observed metrics (CPU, memory, or custom metrics).
+#
+# HOW IT WORKS:
+#   1. Metrics Server collects CPU/memory usage from each pod
+#   2. HPA controller compares current usage against the target threshold
+#   3. If usage exceeds threshold → scale up (add replicas)
+#   4. If usage drops well below → scale down (remove replicas)
+#
+# SCALING FORMULA:
+#   desiredReplicas = ceil(currentReplicas * (currentMetric / desiredMetric))
+#
+# REQUIREMENTS:
+#   - Metrics Server must be running in the cluster
+#   - Docker Desktop: enable it in Settings → Kubernetes → Enable metrics server
+#   - Resource requests MUST be set (HPA calculates % of requested CPU)
+#
+# IMPORTANT: Keep replicas=1 for SQLite (no concurrent write support).
+# Only enable HPA if you have migrated to a database that supports
+# concurrent connections (PostgreSQL, MySQL).
+# ═══════════════════════════════════════════════════════════════════════════════
+{{- if .Values.backend.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "aiops-sentinel.backend.name" . }}-hpa
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "aiops-sentinel.backend.name" . }}
+  minReplicas: {{ .Values.backend.hpa.minReplicas }}
+  maxReplicas: {{ .Values.backend.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Scale up when average CPU across all pods exceeds this percentage
+          # of their resource.requests.cpu value.
+          averageUtilization: {{ .Values.backend.hpa.targetCPUUtilizationPercentage }}
+{{- end }}

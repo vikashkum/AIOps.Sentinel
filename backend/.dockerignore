@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+*.pyo
+.env
+.env.*
+*.log
+aiops_sentinel.db
+ml_models/
+.pytest_cache/
+.mypy_cache/

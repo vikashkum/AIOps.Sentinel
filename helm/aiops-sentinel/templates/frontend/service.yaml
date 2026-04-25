@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aiops-sentinel.frontend.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.frontend.service.type }}
+  selector:
+    {{- include "aiops-sentinel.componentLabels" (dict "component" "frontend" "ctx" .) | nindent 4 }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: {{ .Values.frontend.service.port | default .Values.frontend.port }}
+      targetPort: http
+      {{- if or (eq .Values.frontend.service.type "NodePort") (eq .Values.frontend.service.type "LoadBalancer") }}
+      nodePort: {{ .Values.frontend.service.nodePort }}
+      {{- end }}

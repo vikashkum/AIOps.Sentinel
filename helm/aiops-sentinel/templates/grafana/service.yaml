@@ -1,0 +1,22 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aiops-sentinel.grafana.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: {{ .Values.grafana.service.type }}
+  selector:
+    {{- include "aiops-sentinel.componentLabels" (dict "component" "grafana" "ctx" .) | nindent 4 }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: {{ .Values.grafana.service.port | default .Values.grafana.port }}
+      targetPort: http
+      {{- if or (eq .Values.grafana.service.type "NodePort") (eq .Values.grafana.service.type "LoadBalancer") }}
+      nodePort: {{ .Values.grafana.service.nodePort }}
+      {{- end }}
+{{- end }}

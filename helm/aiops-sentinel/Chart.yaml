@@ -1,0 +1,33 @@
+apiVersion: v2
+name: aiops-sentinel
+description: |
+  AIOps Sentinel — AI-powered IT Operations platform.
+  Provides real-time anomaly detection, Root Cause Analysis (RCA),
+  incident management, and a full Prometheus + Loki + Grafana
+  observability stack running on Kubernetes.
+
+# type: application  → a deployable chart (vs. "library" which is a helper-only chart)
+type: application
+
+# Chart version — bump this (SemVer) every time you modify the chart itself.
+# This is NOT the app version; it tracks the chart's own changes.
+version: 0.1.0
+
+# appVersion — the version of the application the chart deploys.
+# Shown in 'helm list' and used in labels. Does not affect chart behavior.
+appVersion: "1.0.0"
+
+keywords:
+  - aiops
+  - monitoring
+  - observability
+  - anomaly-detection
+  - incident-management
+  - fastapi
+  - prometheus
+  - loki
+  - grafana
+
+maintainers:
+  - name: AIOps Sentinel Team
+    email: ops@aiops-sentinel.local

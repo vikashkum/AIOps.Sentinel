@@ -1,0 +1,145 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Kubernetes Deployment — Backend FastAPI Service
+#
+# CONCEPT: A Deployment manages a ReplicaSet, which manages Pods.
+#
+#   Deployment → ReplicaSet → Pod(s)
+#
+# WHY NOT JUST RUN A POD DIRECTLY?
+#   Bare Pods are not rescheduled if they crash or the node dies.
+#   A Deployment ensures the desired number of replicas always runs.
+#
+# KEY FEATURES:
+#   Rolling updates: new pods start before old ones stop (zero-downtime deploys)
+#   Rollback:        `kubectl rollout undo` reverts to the previous ReplicaSet
+#   Self-healing:    crashed pods are automatically restarted
+#   Scaling:         change replicas manually or via HPA
+#
+# ANATOMY:
+#   spec.replicas    → desired pod count
+#   spec.selector    → label selector to find "owned" pods (immutable after create!)
+#   spec.template    → pod blueprint (same as a Pod spec wrapped in metadata)
+#   spec.strategy    → how to roll out updates
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aiops-sentinel.backend.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+  annotations:
+    # TRICK: Hash the ConfigMap and Secret content into an annotation.
+    # When the config changes, this hash changes → Deployment detects a change
+    # → triggers a rolling restart so pods pick up the new configuration.
+    checksum/config: {{ include (print $.Template.BasePath "/backend/configmap.yaml") . | sha256sum }}
+    checksum/secret: {{ include (print $.Template.BasePath "/backend/secret.yaml") . | sha256sum }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+
+  # Rolling update: Kubernetes starts new pods before stopping old ones.
+  # maxSurge=1:        allow 1 extra pod during update (faster rollout)
+  # maxUnavailable=0:  never kill an old pod until a new one is Ready (zero downtime)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  # The selector MUST match the pod template labels below.
+  # IMMUTABLE after creation — changing it requires delete + recreate.
+  selector:
+    matchLabels:
+      {{- include "aiops-sentinel.componentLabels" (dict "component" "backend" "ctx" .) | nindent 6 }}
+
+  template:
+    metadata:
+      labels:
+        {{- include "aiops-sentinel.componentLabels" (dict "component" "backend" "ctx" .) | nindent 8 }}
+    spec:
+      # Give the app 30 seconds to finish handling in-flight requests during shutdown.
+      # FastAPI/uvicorn handles SIGTERM gracefully within this window.
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.global.appImagePullPolicy }}
+
+          # Named ports let probes and Services reference them by name instead of number.
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.port }}
+              protocol: TCP
+
+          # ── Load ALL keys from ConfigMap + Secret as env vars ───────────
+          # envFrom is more convenient than listing each key individually with env[].
+          # envFrom order matters: later entries override earlier ones for the same key.
+          envFrom:
+            - configMapRef:
+                name: {{ include "aiops-sentinel.backend.name" . }}-config
+            - secretRef:
+                name: {{ include "aiops-sentinel.backend.name" . }}-secret
+
+          # ── Resource management ─────────────────────────────────────────
+          # requests: what the scheduler guarantees the pod will have.
+          # limits:   hard cap — exceeding memory = OOMKill; CPU = throttled.
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+
+          # ── Health probes ───────────────────────────────────────────────
+          # startupProbe:   one-time check at startup; liveness ignored until it passes.
+          #                 Prevents false restarts during slow initialization.
+          # livenessProbe:  is the container healthy? Failure → restart the container.
+          # readinessProbe: is it ready to serve traffic? Failure → remove from Service
+          #                 endpoints (stops sending new requests but doesn't restart).
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            # Allow 30 * 5s = 150 seconds total for the app to initialize.
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ── Volume mounts ────────────────────────────────────────────────
+          # subPath: mount a subdirectory of the PVC rather than the root.
+          # This lets one PVC serve multiple mount points in the same pod.
+          volumeMounts:
+            {{- if .Values.backend.persistence.enabled }}
+            - name: backend-storage
+              mountPath: /app/data       # SQLite DB lives here (DATABASE_URL points here)
+              subPath: database
+            - name: backend-storage
+              mountPath: /app/ml_models  # Trained scikit-learn models
+              subPath: ml_models
+            {{- end }}
+
+      # ── Volumes ────────────────────────────────────────────────────────────
+      # CONCEPT: 'volumes' declares what storage is available to the Pod.
+      # 'volumeMounts' in each container specifies WHERE to mount it.
+      # The 'name' field links a volume declaration to a volumeMount.
+      volumes:
+        {{- if .Values.backend.persistence.enabled }}
+        - name: backend-storage
+          persistentVolumeClaim:
+            claimName: {{ include "aiops-sentinel.backend.name" . }}-data
+        {{- end }}

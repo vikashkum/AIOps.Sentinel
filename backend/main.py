@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from config import settings
@@ -293,6 +294,11 @@ app.include_router(infra_router)
 # Phase 2A/2B — Prometheus & Loki integration routes
 app.include_router(prometheus_router)
 app.include_router(loki_router)
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")

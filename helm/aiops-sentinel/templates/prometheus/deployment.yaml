@@ -1,0 +1,100 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deployment — Prometheus
+#
+# KEY CONCEPT — ConfigMap Volume Mounts:
+# Unlike the backend which uses ConfigMap env vars, Prometheus reads a YAML
+# config file. We mount the ConfigMap as a volume so Prometheus sees it as a
+# real file at /etc/prometheus/prometheus.yml.
+#
+# This pattern (ConfigMap → Volume → File) is extremely common in Kubernetes
+# for applications that read configuration from files (Prometheus, Nginx,
+# Grafana, etc.) rather than environment variables.
+#
+# CONDITIONAL RENDERING:
+# The outer "if prometheus.enabled" guard means the entire deployment
+# is skipped if prometheus.enabled=false in values.yaml.
+# This is how Helm charts support optional components.
+# ═══════════════════════════════════════════════════════════════════════════════
+{{- if .Values.prometheus.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aiops-sentinel.prometheus.name" . }}
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+  annotations:
+    # Restart Prometheus when its config ConfigMap changes.
+    checksum/config: {{ include (print $.Template.BasePath "/prometheus/configmap.yaml") . | sha256sum }}
+spec:
+  replicas: 1  # Prometheus is stateful — run only 1 instance (use Thanos for HA)
+  strategy:
+    # Recreate: stop the old pod before starting the new one.
+    # Needed for Recreate strategy when ReadWriteOnce PVC can't attach to 2 nodes.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "aiops-sentinel.componentLabels" (dict "component" "prometheus" "ctx" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aiops-sentinel.componentLabels" (dict "component" "prometheus" "ctx" .) | nindent 8 }}
+    spec:
+      # Prometheus needs to write to its data directory.
+      # nobody (65534) is a safe non-root user in many base images.
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: "{{ .Values.prometheus.image.repository }}:{{ .Values.prometheus.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time={{ .Values.prometheus.retentionTime }}"
+            - "--web.enable-lifecycle"   # Allows config reload via POST /-/reload
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+          ports:
+            - name: http
+              containerPort: {{ .Values.prometheus.port }}
+          resources:
+            {{- toYaml .Values.prometheus.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            # Mount the ConfigMap file at the path Prometheus expects.
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            # Mount persistent storage for TSDB (Time Series Database).
+            {{- if .Values.prometheus.persistence.enabled }}
+            - name: data
+              mountPath: /prometheus
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            # Reference the ConfigMap by name — must match the metadata.name above.
+            name: {{ include "aiops-sentinel.prometheus.name" . }}-config
+        {{- if .Values.prometheus.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "aiops-sentinel.prometheus.name" . }}-data
+        {{- end }}
+{{- end }}

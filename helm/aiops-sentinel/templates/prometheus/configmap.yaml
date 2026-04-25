@@ -1,0 +1,67 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# ConfigMap — Prometheus Configuration
+#
+# CONCEPT: Mounting a ConfigMap as a file.
+# Instead of passing config as environment variables, some applications
+# (like Prometheus) read a config FILE. We:
+#   1. Define the file content here in the ConfigMap
+#   2. Mount the ConfigMap as a volume in the Deployment
+#   3. The container sees it as a real file at the mount path
+#
+# HELM ADVANTAGE: The backend's service name is dynamically rendered using
+# include "aiops-sentinel.backend.name" — so the config always points to the
+# correct Kubernetes Service regardless of the release name.
+#
+# KUBERNETES DNS EXAMPLE:
+#   {{ include "aiops-sentinel.backend.name" . }} resolves to, e.g., "aiops-backend"
+#   Within the same namespace, Prometheus reaches it at: aiops-backend:8000
+# ═══════════════════════════════════════════════════════════════════════════════
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aiops-sentinel.prometheus.name" . }}-config
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    # ── Prometheus configuration for AIOps Sentinel on Kubernetes ──────────
+    global:
+      scrape_interval:     {{ .Values.prometheus.scrapeInterval }}
+      evaluation_interval: {{ .Values.prometheus.evaluationInterval }}
+      external_labels:
+        monitor: aiops-sentinel
+        environment: {{ .Values.backend.prometheusEnvironment }}
+
+    scrape_configs:
+      # Prometheus self-monitoring
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # AIOps Sentinel backend — request rates, latency, error counts.
+      # NOTE: In Kubernetes, services are reachable by their Service DNS name.
+      # Here: {{ include "aiops-sentinel.backend.name" . }}:{{ .Values.backend.port }}
+      - job_name: aiops-sentinel-backend
+        static_configs:
+          - targets: ["{{ include "aiops-sentinel.backend.name" . }}:{{ .Values.backend.port }}"]
+        metrics_path: /metrics
+
+      # ── Add your own services here ────────────────────────────────────────
+      # For Kubernetes pod auto-discovery, use kubernetes_sd_configs:
+      # - job_name: my-service
+      #   kubernetes_sd_configs:
+      #     - role: pod
+      #       namespaces:
+      #         names: [{{ include "aiops-sentinel.namespace" . }}]
+      #   relabel_configs:
+      #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+      #       action: keep
+      #       regex: true
+      #     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+      #       action: replace
+      #       target_label: __metrics_path__
+      #       regex: (.+)
+{{- end }}

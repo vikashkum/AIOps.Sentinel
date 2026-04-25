@@ -1,0 +1,52 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "aiops-sentinel.grafana.name" . }}-config
+  namespace: {{ include "aiops-sentinel.namespace" . }}
+  labels:
+    {{- include "aiops-sentinel.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  # ── Grafana datasource provisioning ───────────────────────────────────────
+  # This YAML file is mounted at /etc/grafana/provisioning/datasources/
+  # Grafana reads it on startup and auto-configures the data sources.
+  #
+  # KEY INSIGHT: The URLs use Kubernetes Service DNS names.
+  # Grafana (running in the cluster) reaches Prometheus and Loki via
+  # internal cluster DNS — NOT via localhost or NodePort.
+  datasources.yaml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://{{ include "aiops-sentinel.prometheus.name" . }}:{{ .Values.prometheus.port }}
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "{{ .Values.prometheus.scrapeInterval }}"
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://{{ include "aiops-sentinel.loki.name" . }}:{{ .Values.loki.port }}
+        editable: false
+        jsonData:
+          maxLines: 1000
+
+  # ── Dashboard provisioning ───────────────────────────────────────────────
+  dashboards.yaml: |
+    apiVersion: 1
+
+    providers:
+      - name: AIOps Sentinel
+        orgId: 1
+        folder: AIOps Sentinel
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /etc/grafana/provisioning/dashboards
+{{- end }}

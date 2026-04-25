@@ -1,0 +1,8 @@
+# Namespace is intentionally NOT created by this chart.
+# Create it via --create-namespace flag:
+#   helm install aiops ./helm/aiops-sentinel --create-namespace -n aiops-sentinel
+#
+# Reason: Helm tracks Namespace resources as part of the release. If the
+# release fails or is installed without the correct -n flag, the namespace
+# annotation gets corrupted and blocks future installs. Kubernetes recommends
+# managing the Namespace outside of the application chart.
