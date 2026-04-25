@@ -1,0 +1,99 @@
+services:
+  backend:
+    build: ./backend
+    container_name: aiops-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
+      - SIMULATION_INTERVAL_SECONDS=${SIMULATION_INTERVAL_SECONDS:-10}
+      # Phase 2A — Prometheus integration
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-false}
+      - PROMETHEUS_URL=${PROMETHEUS_URL:-http://prometheus:9090}
+      - PROMETHEUS_JOBS=${PROMETHEUS_JOBS:-}
+      - PROMETHEUS_SCRAPE_INTERVAL_SECONDS=${PROMETHEUS_SCRAPE_INTERVAL_SECONDS:-15}
+      - PROMETHEUS_ENVIRONMENT=${PROMETHEUS_ENVIRONMENT:-production}
+      # Phase 2B — Loki integration
+      - LOKI_ENABLED=${LOKI_ENABLED:-false}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100}
+      - LOKI_JOBS=${LOKI_JOBS:-}
+      - LOKI_SCRAPE_INTERVAL_SECONDS=${LOKI_SCRAPE_INTERVAL_SECONDS:-15}
+      - LOKI_LOOKBACK_SECONDS=${LOKI_LOOKBACK_SECONDS:-30}
+      - LOKI_LIMIT_PER_JOB=${LOKI_LIMIT_PER_JOB:-500}
+    volumes:
+      - ./backend:/app
+      - ml_models:/app/ml_models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: aiops-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ── Phase 2A: Prometheus ──────────────────────────────────────────────────
+  # Scrapes itself + any real application targets you add to prometheus.yml.
+  # Profile: only started when the "real" compose profile is active.
+  # Run with: docker compose --profile real up
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: aiops-prometheus
+    profiles: ["real"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+
+  # ── Phase 2B: Loki ────────────────────────────────────────────────────────
+  # Stores logs shipped by Promtail / Alloy or pushed directly via /ingest/loki.
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: aiops-loki
+    profiles: ["real"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # ── Grafana: unified visualisation (Phase 2A + 2B bonus) ─────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: aiops-grafana
+    profiles: ["real"]
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+volumes:
+  ml_models:
+  prometheus_data:
+  loki_data:
+  grafana_data:

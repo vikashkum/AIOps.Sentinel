@@ -1,0 +1,87 @@
+# Promtail configuration for AIOps Sentinel — Phase 2B
+#
+# Promtail is the log shipper agent that reads log files and sends them to Loki.
+# Deploy this on each server you want to monitor, then start Promtail:
+#
+#   promtail -config.file=monitoring/promtail-config.yml
+#
+# Or run it as a container alongside your services (add to docker-compose.yml):
+#
+#   promtail:
+#     image: grafana/promtail:3.0.0
+#     volumes:
+#       - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
+#       - /var/log:/var/log:ro
+#     command: -config.file=/etc/promtail/config.yml
+#
+# After logs arrive in Loki, set LOKI_ENABLED=true in .env to have
+# AIOps Sentinel pull and analyse them automatically.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ── Application logs ────────────────────────────────────────────────────────
+  # Adjust the path and job label to match your services.
+  # AIOps Sentinel uses the 'job' label to identify which service a log belongs to.
+
+  - job_name: api-gateway
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: api-gateway
+          environment: production
+          __path__: /var/log/api-gateway/*.log
+
+  - job_name: order-service
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: order-service
+          environment: production
+          __path__: /var/log/order-service/*.log
+
+  - job_name: payment-service
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: payment-service
+          environment: production
+          __path__: /var/log/payment-service/*.log
+
+  # ── System logs (Linux) ─────────────────────────────────────────────────────
+  - job_name: syslog
+    static_configs:
+      - targets: ["localhost"]
+        labels:
+          job: syslog
+          environment: production
+          __path__: /var/log/syslog
+
+  # ── IIS / Windows logs ─────────────────────────────────────────────────────
+  # Uncomment on Windows hosts running Promtail.
+  # The PowerShell agent (aiops-agent.ps1) is the preferred way to ship
+  # Windows Event Log + IIS logs — it posts directly to /ingest/winevent
+  # and /ingest/iis — but Promtail works too.
+  #
+  # - job_name: iis
+  #   static_configs:
+  #     - targets: ["localhost"]
+  #       labels:
+  #         job: iis
+  #         environment: production
+  #         __path__: C:/inetpub/logs/LogFiles/**/*.log
+  #   pipeline_stages:
+  #     - regex:
+  #         expression: '(?P<date>\d{4}-\d{2}-\d{2}) (?P<time>\d{2}:\d{2}:\d{2}) (?P<method>\w+) (?P<uri>\S+) \S+ \d+ \S+ \S+ (?P<status>\d{3})'
+  #     - labels:
+  #         method:
+  #         status:
